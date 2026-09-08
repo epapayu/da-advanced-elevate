@@ -85,7 +85,7 @@ Cymbal Retail is a Tier-1 global consumer electronics retailer operating 500+ ph
 ### **Why now? Strategic Urgency & Drivers**
 Retail operating margins are under intense pressure from discount competitors, rising supply chain logistics costs, and sophisticated checkout fraud schemes. Modernizing to an open-format **Agentic Data Cloud** on Google Cloud enables Cymbal Retail to:
 1. **Eliminate Data Silos & Egress Costs**: Query existing AWS S3 Iceberg datasets in-place via zero-copy BigLake federation with $0 egress fees.
-2. **Transition from Reactive to In-Flight Operations**: Ingest real-time POS streams via Google Managed Kafka and serve sub-10ms operational aggregates via Cloud Bigtable to catch fraud as it happens.
+2. **Transition from Reactive to In-Flight Operations**: Ingest real-time POS streams via Google Managed Kafka, execute stateful 1-hour sliding-window aggregations via Google Cloud Dataflow, and serve sub-10ms operational aggregates via Cloud Bigtable to catch fraud as it happens.
 3. **Democratize Data with Grounded Agentic AI**: Deploy a governed, multi-agent conversational portal powered by Google Agent Development Kit (ADK) and Gemini 1.5, allowing frontline staff to resolve hardware freezes in <15 seconds and query store KPIs in plain English with 0% formula hallucination.
 
 ---
@@ -101,7 +101,7 @@ Retail operating margins are under intense pressure from discount competitors, r
   * Central metadata governance, column policy tags, dynamic data masking, and certification tags via Dataplex Universal Catalog.
 * **Real-Time Operations & Streaming**:
   * High-throughput event ingestion of POS checkout events from 50+ stores via Managed Service for Apache Kafka (`pos-transactions` topic).
-  * Real-time stream processing and sliding-window (1-hour) aggregations for cashier promotion overrides.
+  * Real-time stream processing and stateful 1-hour sliding-window aggregations via Google Cloud Dataflow for cashier promotion overrides.
   * Low-latency operational caching in Cloud Bigtable (`operations-db`) supporting sub-10ms point lookups.
   * Low-latency (<50ms) in-flight ML scoring for order anomalies and cashier promotion abuse using Vertex AI Endpoints and BigQuery ML.
 * **Agentic Operations Portal**:
@@ -129,7 +129,7 @@ Retail operating margins are under intense pressure from discount competitors, r
 
 ## **1.3. Target Architecture Overview**
 
-The target architecture establishes a modern, unified, open-format **Agentic Data Cloud** on Google Cloud. It connects to existing external S3 Iceberg data without physical migration, ingests live store events via Managed Kafka, processes real-time aggregates into Cloud Bigtable, manages analytics in BigQuery, and surfaces all capabilities through an enterprise multi-agent conversational portal.
+The target architecture establishes a modern, unified, open-format **Agentic Data Cloud** on Google Cloud. It connects to existing external S3 Iceberg data without physical migration, ingests live store events via Managed Kafka, processes stateful 1-hour sliding-window aggregations and in-flight anomaly scoring via Google Cloud Dataflow into Cloud Bigtable, manages analytics in BigQuery, and surfaces all capabilities through an enterprise multi-agent conversational portal.
 
 ```mermaid
 flowchart TB
@@ -142,6 +142,7 @@ flowchart TB
 
     subgraph IngestionLayer ["Ingestion & Streaming Fabric"]
         MKafka["Google Managed Service for Apache Kafka<br/>Topic: pos-transactions"]
+        DataflowStream["Cloud Dataflow (Apache Beam)<br/>1-Hour Stateful Sliding Window & Aggregation"]
         KafkaConnect["Kafka Connect Cluster / Connectors"]
         GCS_Landing["Cloud Storage (GCS)<br/>gs://cymbal-data-bucket/"]
         Dataplex["Dataplex Universal Catalog<br/>Metadata, Policy Tags, Lineage"]
@@ -177,9 +178,11 @@ flowchart TB
     end
 
     %% Ingestion flows
-    POS_Edge -->|JSON Stream| MKafka
-    MKafka -->|Streaming Consumers| Bigtable
-    MKafka -->|Kafka Connect / BQ Sink| BQ_Bronze
+    POS_Edge -->|"JSON Stream"| MKafka
+    MKafka -->|"KafkaIO Read"| DataflowStream
+    DataflowStream -->|"1-Hr Sliding Window Aggregates"| Bigtable
+    DataflowStream -->|"In-flight Anomaly Scoring"| VertexAI_EP
+    MKafka -->|"Kafka Connect / BQ Sink"| BQ_Bronze
     PDF_Repo -->|Sync / Upload| GCS_Landing
     GCS_Landing -->|Object Registration| BQ_ObjectTable
 
@@ -221,6 +224,7 @@ flowchart TB
 | :--- | :--- | :--- | :--- |
 | **Lakehouse Federation** | Zero-copy SQL querying of remote AWS S3 Iceberg tables without data replication | BigLake Metastore + BigQuery Omni / Cloud Connections | Apache Iceberg REST Catalog API, AWS IAM cross-cloud federation |
 | **Real-Time Streaming Bus** | High-throughput distributed ingestion of real-time POS checkout transactions from 500+ stores | Google Managed Service for Apache Kafka (`pos-transactions`) | Kafka Protocol (v3.x), SASL/SCRAM, TLS |
+| **Stateful Stream Processing & Windowing** | Stateful 1-hour sliding-window aggregations, event-time watermarking, anomaly scoring, and low-latency Bigtable sink | Google Cloud Dataflow (Apache Beam 2.50+ Streaming Engine v2) | Apache Beam KafkaIO, BigtableIO, Vertex AI RunInference API |
 | **Streaming ETL & Sinks** | Low-latency stream parsing, schema normalization, and delivery into operational storage | Managed Kafka Connect + Serverless Stream Handlers | Kafka Connect REST API, BigQuery Streaming Insert API |
 | **Operational Fast Cache** | Sub-10ms point lookups and 1-hour sliding-window cashier override aggregations for fraud detection | Cloud Bigtable (`operations-db` instance, SSD storage) | gRPC, Cloud Bigtable Client API, HBase API |
 | **Serverless Batch Compute** | Nightly inventory conformance and POS transaction deduplication scaling to $0 when idle | Dataproc Serverless for Apache Spark (PySpark) | Cloud Dataproc Batches API, Spark 3.5 runtime |
@@ -237,6 +241,7 @@ flowchart TB
 | **Cross-Cloud Data Access** | Physical Replication via ETL/ELT pipelines (S3 to GCS) | **BigLake Iceberg Zero-Copy Federation** | Physical replication introduces massive cross-cloud egress fees, 24-hour sync delays, and dual-storage costs. BigLake allows direct in-place querying via open Iceberg REST catalog with zero data duplication. |
 | **Batch Processing Engine** | Persistent Databricks or Self-Managed Dataproc on GCE | **Dataproc Serverless for Spark** | Persistent clusters incur continuous idle costs ("cluster tax") even when no jobs run. Dataproc Serverless dynamically provisions compute for the duration of the nightly job and terminates within <60s, achieving true $0 idle cost. |
 | **Streaming Message Bus** | Self-managed Kafka on Compute Engine / GKE | **Google Managed Service for Apache Kafka** | Self-managed Kafka requires extensive operational toil (zookeeper/KRaft quorum tuning, broker rebalancing, OS patching). Managed Kafka provides SLA-backed managed brokers with automatic scaling and native IAM integration. |
+| **Stream Window Aggregation Engine** | Stateless Kafka Consumers / Raw Kafka Connect / Self-Hosted Flink | **Google Cloud Dataflow (Apache Beam Streaming Engine)** | Managed Service for Apache Kafka is strictly a message broker and cannot maintain stateful windows or event-time watermarking. Kafka Connect only moves data point-to-point without multi-message aggregation state. Self-hosted Flink incurs heavy operational toil. Dataflow provides fully managed, serverless auto-scaling, built-in 1-hour sliding/tumbling windows, exact-once processing semantics, and native BigtableIO/KafkaIO connectors. |
 | **Operational Caching Layer** | Redis / Memorystore or Cloud SQL | **Cloud Bigtable (`operations-db`)** | Memorystore in-memory cost scales linearly with data volume and lacks durable, high-throughput streaming write capability. Cloud SQL cannot deliver the horizontal write throughput of 500+ stores. Bigtable delivers sub-10ms P99 point lookups and handles massive continuous append streams effortlessly. |
 | **Unstructured Document Store** | Standalone Vector DB (Pinecone / Milvus / Weaviate) | **BigQuery Object Tables + Native Vector Search** | Standalone vector databases create another data silo requiring separate ETL, sync, and security postures. BigQuery Object Tables keep unstructured PDFs in GCS linked directly with relational datasets, allowing unified SQL + Vector joins in a single secure environment. |
 | **Agent Architecture** | Monolithic Single LLM Prompt with Tool Calling | **Hierarchical Multi-Agent (Coordinator + 3 Specialized Sub-Agents)** | A monolithic agent suffers from prompt bloat, high token consumption, tool hallucinations, and context dilution. A hierarchical ADK Coordinator routing to specialized agents (SQL, Bigtable, RAG) ensures strict grounding, token efficiency, and independent error recovery. |
@@ -307,6 +312,7 @@ flowchart TB
     subgraph PrimaryRegion ["Primary Region (us-central1)"]
         ALB1["Regional Internal LB & IAP"]
         KAFKA1["Managed Kafka (Cluster 1)"]
+        DF1["Cloud Dataflow (Cluster 1)<br/>1-Hr Stateful Sliding Window"]
         BT1["Cloud Bigtable (Cluster 1)<br/>operations-db-primary"]
         BQ1["BigQuery Enterprise (us-central1)<br/>Primary Analytical Storage"]
         VTX1["Vertex AI Serving Endpoints"]
@@ -315,6 +321,7 @@ flowchart TB
     subgraph SecondaryRegion ["Secondary Region (us-east4)"]
         ALB2["Regional Internal LB & IAP"]
         KAFKA2["Managed Kafka (Cluster 2)"]
+        DF2["Cloud Dataflow (Cluster 2)<br/>1-Hr Stateful Sliding Window"]
         BT2["Cloud Bigtable (Cluster 2)<br/>operations-db-standby"]
         BQ2["BigQuery Replicated (us-east4)<br/>Continuous Cross-Region Replica"]
         VTX2["Vertex AI Serving Endpoints (Standby)"]
@@ -326,13 +333,18 @@ flowchart TB
     ALB1 --> KAFKA1
     ALB2 --> KAFKA2
 
-    KAFKA1 --> BT1
-    KAFKA2 --> BT2
+    KAFKA1 --> DF1
+    DF1 --> BT1
+    KAFKA2 --> DF2
+    DF2 --> BT2
 
     BT1 <-->|"Bi-Directional Multi-Cluster Replication (Sub-1s RPO)"| BT2
     BQ1 ==>|"BigQuery Cross-Region Replication"| BQ2
 ```
 
+* **Cloud Dataflow Streaming Multi-Region Redundancy**:
+  * Dual streaming pipeline jobs execute in `us-central1` and `us-east4` using **Streaming Engine v2**.
+  * Each regional Dataflow job consumes from its local Managed Kafka cluster, maintains event-time watermarks, computes 1-hour sliding-window aggregations, and writes directly into the local Bigtable cluster. If a primary streaming pipeline or Kafka cluster fails, the Anycast load balancer steers traffic to the secondary region within <10 seconds without dropping state.
 * **Cloud Bigtable Multi-Cluster Routing**:
   * Configured with **Multi-Cluster Routing Application Profiles**. Writes issued to either region are automatically replicated across clusters with eventual consistency (<1 second replication lag).
   * If a data center experiences a total failure, the Bigtable client library automatically re-routes sub-10ms point lookups to the surviving cluster without application restart or manual intervention.
@@ -424,8 +436,8 @@ flowchart LR
     end
 
     subgraph StreamingDelta ["Real-Time Intraday Streams"]
-        Kafka[Kafka: pos-transactions] -->|Consumer Stream| Agg[In-Flight Inventory Worker]
-        Agg -->|Sub-10ms Increment/Decrement| BTCache[Bigtable: store_inventory_atp_cache<br/>Row: SALT#STORE_ID#SKU_ID]
+        Kafka["Kafka: pos-transactions"] -->|"Consumer Stream"| DataflowAgg["Cloud Dataflow (Apache Beam)<br/>Stateful Streaming ATP Worker"]
+        DataflowAgg -->|"Sub-10ms Increment/Decrement"| BTCache["Bigtable: store_inventory_atp_cache<br/>Row: SALT#STORE_ID#SKU_ID"]
     end
 
     subgraph ServingAggregation ["Hybrid ATP Serving Logic"]
@@ -822,11 +834,15 @@ OPTIONS(
 
 ```mermaid
 flowchart LR
-    subgraph StreamFlow ["Real-Time Path (Under 50ms - 1s)"]
+    subgraph Ingestion ["Ingestion & Staging"]
         POS["Store POS Registers"] -->|"JSON Messages"| MK["Managed Kafka: pos-transactions"]
-        MK -->|"Kafka Consumer / Stream Worker"| SC["In-Flight Scoring & Window Agg"]
-        SC -->|"Sub-10ms Put"| BT["Cloud Bigtable Cache"]
-        SC -->|"In-Flight Eval"| VTX["Vertex AI Endpoint: Anomaly"]
+    end
+
+    subgraph RealTimeDataflow ["Real-Time Path: Google Cloud Dataflow (<800ms)"]
+        MK -->|"KafkaIO Read"| DF["Cloud Dataflow Pipeline<br/>(Apache Beam Streaming Engine v2)"]
+        DF -->|"1-Hour Sliding Window & Watermarks"| Agg["Stateful Window Aggregation<br/>(Overrides, Velocity, Totals)"]
+        DF -->|"Async Prediction Transform"| VTX["Vertex AI Online Endpoint<br/>(Abuse Scoring <50ms)"]
+        Agg -->|"Sub-10ms BigtableIO Put"| BT["Cloud Bigtable (operations-db)<br/>Salted Key: SALT#STORE#CASHIER#TS"]
     end
 
     subgraph BatchFlow ["Batch & Federation Path (Nightly / On-Demand)"]
@@ -838,8 +854,52 @@ flowchart LR
 ```
 
 * **Ingestion**: Store POS registers emit JSON events (`store_id`, `cashier_id`, `terminal_id`, `items`, `payment`) to Kafka topic `pos-transactions` (3 replicas, 5 partitions).
-* **Sliding Window Aggregations**: Stream workers aggregate discount overrides within a tumbling/sliding 1-hour window. If overrides > threshold or anomaly score > 0.85, an alert event is written to Bigtable with row key `STORE#<ID>#ALERT#<TS>`.
+* **Stateful Stream Processing**: Google Cloud Dataflow continuously pulls from Kafka, maintains event-time watermarking, executes 1-hour sliding-window aggregations across cashier promotion overrides, and writes live anomaly alerts to Cloud Bigtable.
 * **Nightly Batch Processing**: At 01:00 AM UTC, Cloud Composer triggers a Dataproc Serverless PySpark job reading yesterday's raw POS files from GCS, reconciling shelf counts against inventory ledger, and writing conformed snapshots to `cymbal_gold.gold_inventory_reconciliation_ledger`. Compute scales to $0 upon completion.
+
+### **4.2.1. Google Cloud Dataflow 1-Hour Stateful Window Aggregation Pipeline**
+
+#### **Why Managed Kafka Requires Dataflow**
+Google Managed Service for Apache Kafka serves strictly as a durable, distributed publish/subscribe commit log. It does not possess a stream execution engine, state storage, or watermarking scheduler. Performing real-time calculations—such as sliding-window aggregations over 1 hour, tracking late-arriving events, and emitting anomaly triggers—requires an external stateful stream computing engine. **Google Cloud Dataflow (Apache Beam)** is the native, fully managed GCP engine specifically architected for this workload.
+
+#### **Apache Beam Pipeline Design Specification**
+1. **Kafka Consumption with Exactly-Once Checkpointing**:
+   * Utilizes `KafkaIO.read()` configured with SASL/SCRAM authentication over TLS to read from the `pos-transactions` topic.
+   * Commits offsets back to Kafka only after successful Bigtable writes, ensuring at-least-once delivery with end-to-end idempotent deduplication at the Bigtable key layer.
+2. **Event-Time Timestamping & Watermarking**:
+   * Rather than relying on ingestion processing time, the pipeline extracts the POS terminal's `transaction_timestamp` via `AssignTimestampsAndWatermarks`.
+   * Configured with a `BoundedOutOfOrderness` policy of 60 seconds to accommodate minor wireless WAN latency from store lanes:
+     ```java
+     .apply("AssignTimestamps", WithTimestamps.of((Transaction txn) -> 
+         Instant.parse(txn.getTransactionTimestamp()))
+         .withAllowedTimestampSkew(Duration.standardSeconds(60)))
+     ```
+3. **1-Hour Sliding Window Specification**:
+   * Uses `SlidingWindows.of(Duration.standardHours(1)).every(Duration.standardMinutes(1))` so that cashier override rates are recalculated every 60 seconds over the preceding 60-minute window.
+   * Triggering policy fires panes on watermark arrival, with early speculative firings every 10 seconds during high-velocity bursts and an allowed lateness of 5 minutes:
+     ```java
+     .apply("ApplySlidingWindow", Window.<Transaction>into(
+         SlidingWindows.of(Duration.standardHours(1)).every(Duration.standardMinutes(1)))
+         .triggering(AfterWatermark.pastEndOfWindow()
+             .withEarlyFirings(AfterProcessingTime.pastFirstElement().plusDelayOf(Duration.standardSeconds(10)))
+             .withLateFirings(AfterPane.elementCountAtLeast(1)))
+         .withAllowedLateness(Duration.standardMinutes(5))
+         .accumulatingFiredPanes())
+     ```
+4. **Stateful Keyed Aggregation & Scoring**:
+   * Events are grouped by key `store_id#cashier_id`.
+   * An Apache Beam `CombineFn` accumulates:
+     * `total_override_count`: Count of manual discount overrides in the 1-hour window.
+     * `total_discount_amount`: Cumulative dollar value of discounts approved.
+     * `override_rate_per_hour`: Normalized frequency.
+   * If `total_override_count > 5` or `total_discount_amount > $500.00`, the window invokes the Vertex AI Online Prediction endpoint via an asynchronous HTTP client with batching (concurrency cap: 50 requests/worker) to compute the anomaly probability score.
+5. **Low-Latency Sink into Cloud Bigtable (`BigtableIO`)**:
+   * Transformed window aggregates are mapped to Bigtable `Mutation` objects with salted row keys:
+     $$	ext{RowKey} = 	ext{CRC32}(	ext{store\_id})[:2] \parallel 	ext{"\#"} \parallel 	ext{store\_id} \parallel 	ext{"\#"} \parallel 	ext{cashier\_id} \parallel 	ext{"\#"} \parallel (2^{63}-1 - 	ext{window\_end\_epoch\_ms})$$
+   * Column family `cf_metrics` is populated with qualifier `override_count_1h`, `discount_total_1h`, and `anomaly_score`.
+   * Written using `BigtableIO.write().withProjectId(projectId).withInstanceId("operations-db").withTableId("cashier_override_cache")`.
+6. **Dead-Letter Queue (DLQ) & Error Isolation**:
+   * Malformed JSON payloads or schema validation failures at the Dataflow parser are captured via tagged outputs (`TupleTag<String> deadLetterTag`) and redirected to Kafka topic `pos-transactions-dlq` and Cloud Storage bucket `gs://cymbal-data-dlq/pos-errors/`, preventing pipeline poisoning.
 
 ---
 
@@ -1161,7 +1221,9 @@ The SRE on-call rotation monitors explicit SLI metrics with automated PagerDuty 
 
 | Metric Name / Resource | SLI Description | Warning Threshold (P2 Alert) | Critical Threshold (P1 Page) | Evaluation Window | SRE Mitigation Runbook |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`managedkafka.googleapis.com/consumer/lag_messages`** | POS stream consumer lag on `pos-transactions` | **> 5,000 msgs** | **> 25,000 msgs** | 3 minutes | Trigger Kafka Connect horizontal pod auto-scaler; check Bigtable write throttling |
+| **`managedkafka.googleapis.com/consumer/lag_messages`** | POS stream consumer lag on `pos-transactions` | **> 5,000 msgs** | **> 25,000 msgs** | 3 minutes | Trigger Dataflow worker auto-scaler; check Bigtable write throttling |
+| **`dataflow.googleapis.com/job/system_lag`** | Dataflow 1-hour window watermark processing lag | **> 15 seconds** | **> 60 seconds** | 2 minutes | Auto-scale Dataflow workers; verify streaming engine throughput and Bigtable node CPU |
+| **`dataflow.googleapis.com/job/is_failed`** | Dataflow streaming pipeline crash or restart loop | **N/A** | **== 1 (Failed)** | 0 minutes | Immediate P1 SRE notification; auto-recover job from checkpoint; inspect DLQ volume |
 | **`bigtable.googleapis.com/server/latencies`** | Server-side Bigtable mutation latency (P99) | **> 25ms** | **> 60ms** | 5 minutes | Inspect salt bucket distribution; programmatically add 2 nodes to `operations-db` cluster |
 | **`bigquery.googleapis.com/query/scanned_bytes`** | Scanned bytes volume per generated query | **> 100 GB** | **> 500 GB** | Single query | AST validator kills query automatically; review SQL Agent prompt semantic definitions |
 | **`aiplatform.googleapis.com/prediction/online/error_count`** | In-flight ML anomaly scoring endpoint errors | **> 1.0%** | **> 3.0%** | 3 minutes | Circuit breaker trips; transactions auto-routed to `FLAG_UNSCORED_PENDING_AUDIT` queue |
@@ -1207,7 +1269,7 @@ Each module operates as a standalone Terraform root module with its own isolated
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
 │   ├── 01-lakehouse/                 # Module 1: BigQuery, BigLake AWS S3 Connection, Dataplex, Iceberg
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
-│   ├── 02-streaming/                 # Module 2: Managed Kafka, Cloud Bigtable, Kafka Connect, Composer
+│   ├── 02-streaming/                 # Module 2: Managed Kafka, Cloud Dataflow (Beam 1-Hr Window), Cloud Bigtable, Kafka Connect, Composer
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
 │   └── 03-agentic/                   # Module 3: Vertex AI Endpoints, Agent Tool Gateway, Cloud Run UI
 │       ├── main.tf, variables.tf, outputs.tf, backend.tf
@@ -1254,6 +1316,24 @@ gs://<PROJECT_ID>-tfstate/
         }
       }
     }
+
+    # Cloud Dataflow 1-Hour Sliding Window Aggregation Pipeline
+    resource "google_dataflow_flex_template_job" "pos_window_aggregator" {
+      name                    = "pos-window-aggregator"
+      container_spec_gcs_path = "gs://${var.dataflow_template_bucket}/templates/pos-streaming-agg.json"
+      parameters = {
+        kafka_bootstrap_servers = google_managed_kafka_cluster.kafka.bootstrap_servers
+        input_topic             = "pos-transactions"
+        bigtable_instance_id    = google_bigtable_instance.operations_db.name
+        bigtable_table_id       = "cashier_override_cache"
+        window_duration_minutes = "60"
+        sliding_period_minutes  = "1"
+        dlq_topic               = "pos-transactions-dlq"
+      }
+      network                 = data.terraform_remote_state.substrate.outputs.vpc_network_name
+      subnetwork              = data.terraform_remote_state.substrate.outputs.streaming_subnet_id
+      service_account_email   = var.dataflow_service_account_email
+    }
     ```
 * **Blast Radius Isolation**: Modifying, deploying, or rolling back agent configurations in Module 3 has **zero risk** of mutating or destroying base VPC networks, BigQuery datasets, or Bigtable storage in Modules 0–2.
 
@@ -1271,9 +1351,10 @@ gantt
     BigLake S3 Iceberg Federation     :done, p2, 2026-09-03, 3d
     Dataplex Governance and Masking   :done, p3, 2026-09-06, 2d
     section Phase 2 Streaming and Batch
-    Managed Kafka Topic Setup         :active, p4, 2026-09-08, 3d
-    Cloud Bigtable Cache Aggregator   :active, p5, 2026-09-10, 4d
-    Dataproc Serverless PySpark ETL   :p6, 2026-09-14, 4d
+    Managed Kafka Topic Setup         :done, p4, 2026-09-08, 2d
+    Cloud Dataflow 1-Hr Window Pipeline:active, p5, 2026-09-10, 4d
+    Cloud Bigtable Cache Aggregator   :active, p6, 2026-09-12, 3d
+    Dataproc Serverless PySpark ETL   :p7, 2026-09-15, 3d
     section Phase 3 Agentic AI
     BigQuery Vector Search and RAG    :p7, 2026-09-18, 4d
     Coordinator Router and Sub-Agents :p8, 2026-09-22, 5d
@@ -1288,7 +1369,7 @@ gantt
 | Phase | Milestone / Workstream | Start Date | End Date | Dependencies | Key Deliverables |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Phase 1: Foundations** | Base Infrastructure & Governance | 2026-09-01 | 2026-09-07 | GCP Project & IAM | Terraform baseline (VPC, BQ, GCS, BigLake connection to S3), Dataplex taxonomies, `mask_card_number` routine |
-| **Phase 2: Streaming & Batch** | Event Stream & Lakehouse ETL | 2026-09-08 | 2026-09-17 | Phase 1 Infra | Managed Kafka cluster, `pos-transactions` topic, Bigtable sliding-window cache, Dataproc Serverless PySpark batch job |
+| **Phase 2: Streaming & Batch** | Event Stream & Lakehouse ETL | 2026-09-08 | 2026-09-17 | Phase 1 Infra | Managed Kafka cluster, Cloud Dataflow 1-hour sliding window pipeline, Bigtable sliding-window cache, Dataproc Serverless PySpark batch job |
 | **Phase 3: Agentic AI** | RAG & Multi-Agent Orchestrator | 2026-09-18 | 2026-09-30 | Phase 1 & 2 Data | BigQuery Vector Search over PDF manuals, ADK Coordinator Router, Analytical SQL & Cache Sub-Agents, UC-2.x multi-domain flows |
 | **Phase 4: UAT & Handoff** | Verification, Hardening & Acceptance | 2026-10-01 | 2026-10-05 | Phase 3 Agents | Automated SQL/RAG eval benchmarks, PII masking penetration test, resilient partial synthesis validation, final executive demo |
 
