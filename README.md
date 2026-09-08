@@ -110,7 +110,8 @@ Retail operating margins are under intense pressure from discount competitors, r
     1. *Analytical SQL Sub-Agent*: Natural language to SQL generation adhering strictly to vetted business formulas, partition pruning, and central business glossary.
     2. *Operational Cache Sub-Agent*: Cloud Bigtable point lookups for live cashier risk and store anomaly flags.
     3. *Technical Manual RAG Sub-Agent*: Vector search and grounded generation over PDF technical manuals and warranties with strict citation linking and 0.7 similarity rejection threshold.
-  * Cross-system multi-domain orchestration chaining RAG, SQL, and streaming cache tools (UC-2.1, UC-2.2, UC-2.3).
+    4. *Supply Chain Graph Sub-Agent (Evolutionary Path)*: Graph Query Language (GQL) traversal over BigQuery property graphs for multi-hop vendor-to-store blast-radius analysis (UC-2.4).
+  * Cross-system multi-domain orchestration chaining RAG, SQL, streaming cache, and graph tools (UC-2.1 through UC-2.4).
 * **Security & Governance**:
   * End-user enterprise identity token propagation (JWT headers / Service Accounts) enforcing dynamic Row-Level Security (RLS) per Store Manager.
   * Dynamic column-level masking (`mask_card_number`) redacting customer payment card numbers (`XXXX-XXXX-XXXX-9999`) across query logs and chat responses.
@@ -123,7 +124,7 @@ Retail operating margins are under intense pressure from discount competitors, r
 * Voice or telephony interface integration (IVR / VoIP).
 * Production Single Sign-On (SSO) identity provider synchronization (uses functional GCP test service accounts and mock JWT tokens).
 * Multi-tenant logical isolation (single-tenant architecture for pilot).
-* Direct conversational agent integration with the Supply Chain Graph dataset (UC-2.4 handled via BigQuery Studio notebooks).
+* Direct third-party ERP replenishment write-back execution (advisory and simulation provided; automated purchase order dispatch slated for Phase 4).
 
 ---
 
@@ -153,9 +154,11 @@ flowchart TB
         DataprocServerless["Dataproc Serverless (PySpark)<br/>Nightly Reconciliation & Conformance"]
         
         subgraph BigQueryFabric ["BigQuery Enterprise Engine (Vectorized)"]
+            BIEngine["BI Engine In-Memory Reservation<br/>(50 GiB Metadata & Dimension Acceleration)"]
             BQ_Bronze["Bronze: Raw POS Telemetry"]
             BQ_Silver["Silver: Conformed Fact / Dimensions"]
             BQ_Gold["Gold: Aggregated Metrics & Iceberg Ledger"]
+            BQ_Graph["BigQuery Graph: cymbal_supply_chain_graph<br/>(GQL Multi-Hop Property Graph)"]
             BQ_ObjectTable["Object Tables: PDF Metadata & Text"]
             BQ_VectorSearch["BigQuery Vector Search & Embeddings<br/>(text-embedding-005)"]
             BQML_Models["BQML Models (Abuse & Anomaly)"]
@@ -174,6 +177,7 @@ flowchart TB
             SQLAgent["Analytical SQL Sub-Agent<br/>(Vetted Glossary, Partition Enforcer)"]
             BigtableAgent["Operational Cache Sub-Agent<br/>(Key Builder, Fast KV Retriever)"]
             RAGAgent["Technical Manual RAG Sub-Agent<br/>(0.7 Grounding Threshold, Citations)"]
+            GraphAgent["Supply Chain Graph Sub-Agent<br/>(GQL Property Graph, Blast Radius)"]
         end
     end
 
@@ -211,11 +215,13 @@ flowchart TB
     Coordinator <--> SQLAgent
     Coordinator <--> BigtableAgent
     Coordinator <--> RAGAgent
+    Coordinator <--> GraphAgent
 
     SQLAgent <-->|"Dynamic SQL with Token & RLS"| BigQueryFabric
     BigtableAgent <-->|"Row Key Filter Lookups"| Bigtable
     RAGAgent <-->|"Vector Distance Query"| BQ_VectorSearch
     RAGAgent <-->|"Retrieve PDF Chunks"| GCS_Landing
+    GraphAgent <-->|"GQL Multi-Hop Traversal (UC-2.4)"| BQ_Graph
 ```
 
 ### **Component Descriptions**
@@ -229,6 +235,8 @@ flowchart TB
 | **Operational Fast Cache** | Sub-10ms point lookups and 1-hour sliding-window cashier override aggregations for fraud detection | Cloud Bigtable (`operations-db` instance, SSD storage) | gRPC, Cloud Bigtable Client API, HBase API |
 | **Serverless Batch Compute** | Nightly inventory conformance and POS transaction deduplication scaling to $0 when idle | Dataproc Serverless for Apache Spark (PySpark) | Cloud Dataproc Batches API, Spark 3.5 runtime |
 | **Vectorized Analytical Engine** | Enterprise SQL analytics, partition pruning, column-level security, and BQML execution | BigQuery Enterprise Edition (Reserved & On-Demand slots) | GoogleSQL, BigQuery Storage Read/Write API, REST/gRPC |
+| **In-Memory Analytical Acceleration** | Sub-100ms query planning, metadata manifest caching for AWS S3 Iceberg, and dimension table acceleration | BigQuery BI Engine (50 GiB Reservation in `us-central1`, 50 GiB in `us-east4`) | BigQuery SQL Engine, BI Engine Reservation API |
+| **Supply Chain Property Graph** | Multi-hop vendor-to-store relationship modeling and ripple-effect blast radius computation | BigQuery Graph (ISO SQL:2023 Property Graphs / GQL) | GoogleSQL Property Graph syntax, Graph Query Language (GQL) |
 | **Document Vectorization & RAG** | Indexing and querying PDF manuals/warranties with cosine similarity and metadata object linking | BigQuery Object Tables + `VECTOR_SEARCH` + Vertex AI Embeddings (`text-embedding-005`) | BigQuery SQL `ML.GENERATE_EMBEDDING`, GCS API |
 | **In-Flight ML Inference** | Scoring transactions in-flight for fraud and cashier abuse with <50ms P95 latency | Vertex AI Online Prediction Endpoints | HTTPS REST / gRPC Prediction API |
 | **Agentic AI Orchestrator** | Multi-agent coordination, intent classification, multi-turn state management, and partial synthesis | Google Agent Development Kit (ADK) / Gemini 1.5 Pro / Flash on Vertex AI | Agent Platform REST API, Model Context Protocol (MCP) |
@@ -419,9 +427,9 @@ To guarantee store cashiers and supervisors never cause checkout bottlenecks or 
 * **Trigger**: POS local edge engine detects metadata version divergence (`ERR-SYNC-900`) against the central BigLake Iceberg REST catalog during high-volume sales commits.
 * **Risk Addressed**: Inconsistent sales facts or corrupted manifest lists in the lakehouse ledger.
 * **Step-by-Step Supervisor Sequence**:
-  1. **Local NVMe Buffer Spooling**: The POS edge agent halts direct commit to the cloud and routes in-flight sales facts into an encrypted local NVMe spool file (`/var/spool/pos_offline.wal`).
+  1. **Local NVMe Buffer Spooling (TPM 2.0 & AES-GCM-256)**: The POS edge agent halts direct cloud commits and routes in-flight sales facts into a hardware-secured NVMe write-ahead log (`/var/spool/cymbal/pos_offline.wal`). The file is protected via envelope encryption using ephemeral AES-GCM-256 data keys sealed by the motherboard's **TPM 2.0 chip** against TCG Opal 2.01 SED hardware storage (see Section 6.1.4).
   2. **Manifest Marker Realignment**: Store supervisor enters override code `9900#SYNC` into the POS supervisor screen (or triggers via conversational agent). The agent invokes the `realign_iceberg_manifest` tool, which queries the AWS S3 Iceberg REST catalog for the latest valid `snapshot-id` pointer.
-  3. **Replay & Idempotency Append**: The agent replays all spooled sales transactions from the local NVMe buffer to Managed Kafka topic `pos-transactions` with header `X-Idempotency-Key: <STORE_ID>#<TXN_ID>`. The BigLake Iceberg table flushes manifests cleanly without data loss. Total recovery time: **< 45 seconds**.
+  3. **Replay, Verification & Cryptographic Shredding**: Once WAN connectivity is restored, the agent streams all spooled transactions from the encrypted NVMe buffer to Managed Kafka topic `pos-transactions` with header `X-Idempotency-Key: <STORE_ID>#<TXN_ID>`. Following Kafka commit acknowledgement, the local spool file is cryptographically shredded via DoD 5220.22-M 3-pass overwrite and NVMe TRIM. Total recovery time: **< 45 seconds**.
 
 ---
 
@@ -618,6 +626,38 @@ sequenceDiagram
     Router->>Router: Synthesize alert severity + historical transaction log
     Router-->>Auditor: Display Cashier CASH_1190 audit dossier with masked payment card numbers
 ```
+
+---
+
+### **3.1.7. Use Case 2.4: Multi-Hop Supply Chain Graph Traversal & Ripple-Effect Blast Radius (Evolutionary Path)**
+
+To prevent supply chain blind spots and address stockouts before they hit store shelves, the architecture establishes a production evolutionary path for **UC-2.4: Supply Chain Disruption & Blast-Radius Traversal**. The Coordinator delegates natural language supply disruption inquiries to the **Supply Chain Graph Sub-Agent (`GraphAgent`)**, which executes multi-hop Graph Query Language (GQL) traversals across BigQuery Property Graphs and correlates graph paths with live Bigtable ATP inventory:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Planner as Supply Chain Lead / Manager
+    participant Portal as Web Portal / Conversational UI
+    participant Router as Coordinator Router Agent
+    participant GraphAgent as Supply Chain Graph Sub-Agent
+    participant BQGraph as BigQuery Graph (GQL Engine)
+    participant BTCache as Cloud Bigtable (Live ATP Inventory)
+
+    Planner->>Portal: "If Supplier Apex (SUP_402) halts cold-brew coffee deliveries, what stores are disrupted?"
+    Portal->>Router: Dispatch natural language query with user context
+    Router->>GraphAgent: Route intent: Supply Chain Multi-Hop Blast Radius
+    GraphAgent->>BQGraph: Execute GQL Multi-Hop Graph Traversal Query
+    Note over BQGraph: MATCH (s:Supplier {id:'SUP_402'})-[:SUPPLIES_TO]->(dc:DistributionCenter)-[:SHIPS_TO]->(st:Store)
+    BQGraph-->>GraphAgent: Return Graph Nodes: DC_Midwest, DC_East; 38 impacted Stores; 3 alternate suppliers
+    GraphAgent->>BTCache: Fetch live ATP stock for impacted SKU across 38 stores
+    BTCache-->>GraphAgent: 14 stores have under 2 days of buffer stock on hand
+    GraphAgent-->>Router: Synthesized Blast Radius: 38 stores in path, 14 critical stockouts, reroute options via SUP_901
+    Router-->>Portal: Render interactive blast radius summary table with alternate supplier fulfillment options
+    Portal-->>Planner: Display supply chain disruption dossier with one-click re-routing recommendations
+```
+
+* **Multi-Hop Traversal Efficiency**: The BigQuery Graph engine executes topological traversals natively in columnar slot memory, resolving 3-hop supplier-to-DC-to-store dependencies in **< 1.8s** without costly relational recursive CTEs.
+* **Closed-Loop Actionability**: The agent does not simply report disruption; it identifies alternate authorized vendors (`SUP_901: Pacific Roast Corp`) with active distribution contracts, providing actionable stock re-routing proposals directly in the manager's chat session.
 
 ---
 
@@ -1267,7 +1307,7 @@ Each module operates as a standalone Terraform root module with its own isolated
 ├── modules/
 │   ├── 00-substrate/                 # Module 0: VPC, Subnets, Cloud NAT, Base IAM, State Bucket
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
-│   ├── 01-lakehouse/                 # Module 1: BigQuery, BigLake AWS S3 Connection, Dataplex, Iceberg
+│   ├── 01-lakehouse/                 # Module 1: BigQuery, BI Engine Reservation (50 GiB), BigLake S3 Connection, Dataplex, Iceberg
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
 │   ├── 02-streaming/                 # Module 2: Managed Kafka, Cloud Dataflow (Beam 1-Hr Window), Cloud Bigtable, Kafka Connect, Composer
 │   │   ├── main.tf, variables.tf, outputs.tf, backend.tf
@@ -1301,6 +1341,22 @@ gs://<PROJECT_ID>-tfstate/
       config = {
         bucket = var.tfstate_bucket
         prefix = "env/prod/module0-substrate"
+      }
+    }
+
+    # BigQuery BI Engine In-Memory Reservation (Module 1: Accelerates S3 Iceberg Metadata)
+    resource "google_bigquery_bi_reservation" "bi_engine_reservation" {
+      location = var.gcp_region
+      size     = 53687091200 # 50 GiB in bytes
+      preferred_tables {
+        project_id = var.project_id
+        dataset_id = "cymbal_gold"
+        table_id   = "gold_store_master"
+      }
+      preferred_tables {
+        project_id = var.project_id
+        dataset_id = "cymbal_lakehouse"
+        table_id   = "ext_s3_sales_transactions"
       }
     }
 
@@ -1383,7 +1439,7 @@ Every platform risk is evaluated quantitatively ($P \times I$, scale 1–25) wit
 
 | Risk ID & Description | Prob (1-5) | Imp (1-5) | Risk Score | Early Warning Indicator (SLI / SLO) | Blast Radius Containment Boundary | Target RTO / RPO | Containment & Recovery Playbook | Owner |
 | :--- | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
-| **R-1: Cross-Cloud Egress & S3 REST Throttling** | 3 | 4 | **12** (Med) | BigLake federated scan P95 latency > 8.0s over 5-min window | Isolated to AWS S3 federated query path; BigQuery native tables unaffected | RTO < 30s<br/>RPO = 0s | Auto-switch query engine to local BigQuery BI Engine materialized snapshot; refresh IAM token pool | Marcus Vance |
+| **R-1: Cross-Cloud Egress & S3 REST Throttling** | 3 | 4 | **12** (Med) | BigLake federated scan P95 latency > 8.0s over 5-min window | Isolated to AWS S3 federated query path; BigQuery native tables unaffected | RTO < 30s<br/>RPO = 0s | Auto-switch query engine to local BigQuery BI Engine 50 GiB in-memory cache; leverage 30-min cached metadata manifests to eliminate remote AWS S3 REST calls; refresh IAM token pool | Marcus Vance |
 | **R-2: Financial Formula Hallucination in SQL** | 2 | 5 | **10** (Med) | SQL Agent AST audit failure rate > 0% on golden validation set | Isolated to conversational analytics chat; underlying BI reports unaffected | RTO < 10s<br/>RPO = 0s | Hard-block query dispatch; re-prompt model with strict system glossary DDL constraints | Analytics Lead |
 | **R-3: POS Payment Freeze Abandoned Carts** | 2 | 5 | **10** (Med) | Terminal ERR-PAY-4001 count > 5 events/hr across store cluster | Isolated to specific register terminal; other lane registers unaffected | RTO < 12s<br/>RPO = 0s | Execute Protocol ERR-PAY-4001; check Bigtable idempotency key; zero customer double-charge | Elena Rostova |
 | **R-4: Bigtable Tablet Hotspotting in Flash Sales** | 2 | 4 | **8** (Low) | Bigtable tablet server CPU utilization > 70% on single node | Isolated to 1 of 16 salt ranges; other 15 tablet servers unaffected | RTO < 60s<br/>RPO = 0s | 2-byte CRC32 store salting distributes row keys; trigger Bigtable programmatic cluster auto-scale | Platform SRE |
@@ -1466,4 +1522,5 @@ flowchart LR
 - [x] **Model Registry Deployment Script Verification**: Validated `bq cp` and `gcloud ai endpoints deploy-model` automated bootstrap in `us-central1` and `us-east4` — *Owner: MLOps Lead (Completed 2026-09-08)*
 - [ ] **Document AI OCR Pre-Processing Benchmark**: Run benchmark evaluating Document AI layout parser against low-resolution scanned PDF wiring schematics before vectorization — *Owner: AI Engineer (Target: 2026-09-12)*
 - [ ] **Simulate Saturday POS Traffic Bursts (2,500 msg/sec)**: Execute automated load generator script on Compute Engine VM to validate Bigtable CRC32 salting uniformity across tablet partitions — *Owner: Data Engineering Lead (Target: 2026-09-15)*
-- [ ] **Confirm Graph Analytics Handoff (UC-2.4)**: Confirm BigQuery Studio notebook templates are pre-staged for supply chain traceability queries without agent tool bindings — *Owner: Data Analyst Lead (Target: 2026-09-18)*
+- [ ] **Benchmark BI Engine Reservation & Manifest Cache Acceleration**: Validate 50 GiB BI Engine reservation in `us-central1` and measure P95 query planning drop (<100ms) on `ext_s3_sales_transactions` — *Owner: Cloud Data Architect (Target: 2026-09-11)*
+- [ ] **Verify BigQuery Property Graph & Agent Tool Binding (UC-2.4)**: Deploy `cymbal_supply_chain_graph` DDL in BigQuery, validate GQL multi-hop queries, and verify `query_supply_chain_graph` tool binding for the Supply Chain Graph Sub-Agent — *Owner: Data Engineering & AI Lead (Target: 2026-09-18)*
