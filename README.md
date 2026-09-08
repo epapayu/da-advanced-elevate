@@ -199,8 +199,8 @@ flowchart TB
     BQML_Models -.-> VertexAI_EP
 
     %% Governance & Security overlay
-    Dataplex -.->|Policy Tags & RLS| BigQueryFabric
-    Dataplex -.->|Masking card_number| BigQueryFabric
+    Dataplex -.->|"Policy Tags & RLS"| BigQueryFabric
+    Dataplex -.->|"Masking card_number"| BigQueryFabric
 
     %% Agent workflows
     WebPortal <--> Guardrails
@@ -209,10 +209,10 @@ flowchart TB
     Coordinator <--> BigtableAgent
     Coordinator <--> RAGAgent
 
-    SQLAgent <-->|Dynamic SQL with Token & RLS| BigQueryFabric
-    BigtableAgent <-->|Row Key Filter Lookups| Bigtable
-    RAGAgent <-->|Vector Distance Query| BQ_VectorSearch
-    RAGAgent <-->|Retrieve PDF Chunks| GCS_Landing
+    SQLAgent <-->|"Dynamic SQL with Token & RLS"| BigQueryFabric
+    BigtableAgent <-->|"Row Key Filter Lookups"| Bigtable
+    RAGAgent <-->|"Vector Distance Query"| BQ_VectorSearch
+    RAGAgent <-->|"Retrieve PDF Chunks"| GCS_Landing
 ```
 
 ### **Component Descriptions**
@@ -320,8 +320,8 @@ flowchart TB
         VTX2["Vertex AI Serving Endpoints (Standby)"]
     end
 
-    Anycast -->|Geo-Routing (Health Checked)| ALB1
-    Anycast -.->|Auto-Failover (<10s RTO)| ALB2
+    Anycast -->|"Geo-Routing (Health Checked)"| ALB1
+    Anycast -.->|"Auto-Failover (Sub-10s RTO)"| ALB2
 
     ALB1 --> KAFKA1
     ALB2 --> KAFKA2
@@ -329,8 +329,8 @@ flowchart TB
     KAFKA1 --> BT1
     KAFKA2 --> BT2
 
-    BT1 <==|Bi-Directional Multi-Cluster Replication (<1s RPO)|==> BT2
-    BQ1 ===|BigQuery Cross-Region Replication|===> BQ2
+    BT1 <-->|"Bi-Directional Multi-Cluster Replication (Sub-1s RPO)"| BT2
+    BQ1 ==>|"BigQuery Cross-Region Replication"| BQ2
 ```
 
 * **Cloud Bigtable Multi-Cluster Routing**:
@@ -823,17 +823,17 @@ OPTIONS(
 ```mermaid
 flowchart LR
     subgraph StreamFlow ["Real-Time Path (Under 50ms - 1s)"]
-        POS["Store POS Registers"] -->|JSON Messages| MK["Managed Kafka: pos-transactions"]
-        MK -->|Kafka Consumer / Stream Worker| SC["In-Flight Scoring & Window Agg"]
-        SC -->|Sub-10ms Put| BT["Cloud Bigtable Cache"]
-        SC -->|In-Flight Eval| VTX["Vertex AI Endpoint: Anomaly"]
+        POS["Store POS Registers"] -->|"JSON Messages"| MK["Managed Kafka: pos-transactions"]
+        MK -->|"Kafka Consumer / Stream Worker"| SC["In-Flight Scoring & Window Agg"]
+        SC -->|"Sub-10ms Put"| BT["Cloud Bigtable Cache"]
+        SC -->|"In-Flight Eval"| VTX["Vertex AI Endpoint: Anomaly"]
     end
 
     subgraph BatchFlow ["Batch & Federation Path (Nightly / On-Demand)"]
-        MK -->|Kafka Connect / GCS Sink| GCS_Landing[GCS Bronze Staging]
-        GCS_Landing --> DP[Dataproc Serverless PySpark]
-        DP -->|Deduplicate & Conform| BQ_Gold[BigQuery Gold Conformed Tables]
-        S3[AWS S3 Iceberg Tables] <-->|Zero-Copy On-Demand| BL[BigLake / BigQuery Omni]
+        MK -->|"Kafka Connect / GCS Sink"| GCS_Landing["GCS Bronze Staging"]
+        GCS_Landing --> DP["Dataproc Serverless PySpark"]
+        DP -->|"Deduplicate & Conform"| BQ_Gold["BigQuery Gold Conformed Tables"]
+        S3["AWS S3 Iceberg Tables"] <-->|"Zero-Copy On-Demand"| BL["BigLake / BigQuery Omni"]
     end
 ```
 
@@ -847,18 +847,18 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    User([End User / Store Manager]) -->|HTTP Request with Bearer Token| Portal[Portal Web Service]
-    Portal -->|Extract Identity & Store Assignment| AppServer[Application Backend]
+    User(["End User / Store Manager"]) -->|"HTTP Request with Bearer Token"| Portal["Portal Web Service"]
+    Portal -->|"Extract Identity & Store Assignment"| AppServer["Application Backend"]
     
     subgraph Delegation ["Delegated Context Passing"]
-        AppServer -->|Call Agent with Identity Context| Agent[ADK Coordinator]
-        Agent -->|Pass User Token in Connection Context| BQ[BigQuery Engine]
+        AppServer -->|"Call Agent with Identity Context"| Agent["ADK Coordinator"]
+        Agent -->|"Pass User Token in Connection Context"| BQ["BigQuery Engine"]
     end
     
     subgraph Enforcement ["Authorization Boundaries"]
-        BQ -->|Evaluate Principal Store Claim| RLS{Row-Level Security}
-        RLS -->|Store_008 Manager| Filter[WHERE store_id = 'STORE_008']
-        RLS -->|Regional Auditor| All[Full Store Access]
+        BQ -->|"Evaluate Principal Store Claim"| RLS{"Row-Level Security"}
+        RLS -->|"Store_008 Manager"| Filter["WHERE store_id = 'STORE_008'"]
+        RLS -->|"Regional Auditor"| All["Full Store Access"]
     end
 ```
 
@@ -931,7 +931,7 @@ flowchart TD
     end
 
     subgraph AuthorizedIngress ["Authorized Ingress Network"]
-        Stores[Store POS Edge / Staff] -->|Cloud Interconnect / VPN + IAP| IngressGate[VPC-SC Ingress Rule]
+        Stores["Store POS Edge / Staff"] -->|"Cloud Interconnect / VPN + IAP"| IngressGate["VPC-SC Ingress Rule"]
     end
 
     subgraph AuthorizedEgress ["Authorized Cross-Cloud Egress"]
@@ -1038,21 +1038,25 @@ status:
 
 ```mermaid
 flowchart TD
-    Req[User Request UC-2.2 / UC-2.3] --> Coord[Coordinator Router Agent]
+    Req["User Request UC-2.2 / UC-2.3"] --> Coord["Coordinator Router Agent"]
     
-    Coord --> CallCache[Call Bigtable Cache]
-    Coord --> CallBQ[Call BigQuery Engine]
+    Coord --> CallCache["Call Bigtable Cache"]
+    Coord --> CallBQ["Call BigQuery Engine"]
     
-    CallCache -->|Success| R1[Bigtable Live Alerts]
-    CallCache -->|Timeout / 503| F1[Cache Unavailable Warning]
+    CallCache -->|"Success"| R1["Bigtable Live Alerts"]
+    CallCache -->|"Timeout / 503"| F1["Cache Unavailable Warning"]
     
-    CallBQ -->|Success| R2[BigQuery Historical Ledger]
-    CallBQ -->|Timeout / Rate Limit| F2[Analytical DB Delayed]
+    CallBQ -->|"Success"| R2["BigQuery Historical Ledger"]
+    CallBQ -->|"Timeout / Rate Limit"| F2["Analytical DB Delayed"]
     
-    R1 & R2 --> Synth[Full Synthesis Response]
-    R1 & F2 --> PartSynth1[Partial Synthesis: Live Alerts only + 'Historical audit currently delayed']
-    F1 & R2 --> PartSynth2[Partial Synthesis: Historical Ledger only + 'Live cache currently refreshing']
-    F1 & F2 --> TotalFail[Clean Error Notification: 'Systems undergoing maintenance. Please retry in 2 mins.']
+    R1 --> Synth["Full Synthesis Response"]
+    R2 --> Synth
+    R1 --> PartSynth1["Partial Synthesis: Live Alerts only + 'Historical audit currently delayed'"]
+    F2 --> PartSynth1
+    F1 --> PartSynth2["Partial Synthesis: Historical Ledger only + 'Live cache currently refreshing'"]
+    R2 --> PartSynth2
+    F1 --> TotalFail["Clean Error Notification: 'Systems undergoing maintenance. Please retry in 2 mins.'"]
+    F2 --> TotalFail
 ```
 
 ### **5.2.1. Unified Infrastructure Error-Handling Matrix**
@@ -1332,9 +1336,9 @@ flowchart LR
     end
 
     subgraph Metrics ["Quality & Safety Gate Thresholds"]
-        BQAST -->|Assert 100% Partition Pruning| Gate{Quality Gate}
-        PromptfooRun -->|Assert >=95% SQL Correctness & 0% PII Leak| Gate
-        VertexEval -->|Assert Groundedness >= 0.85 & Faithfulness >= 0.90| Gate
+        BQAST -->|"Assert 100% Partition Pruning"| Gate{Quality Gate}
+        PromptfooRun -->|"Assert >=95% SQL Correctness & 0% PII Leak"| Gate
+        VertexEval -->|"Assert Groundedness >= 0.85 & Faithfulness >= 0.90"| Gate
     end
 
     Gate -->|Pass| DeployProd[Deploy to Production Endpoints]
